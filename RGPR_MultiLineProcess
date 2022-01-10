@@ -1,0 +1,90 @@
+rm(list=ls())
+library(RGPR)       # load RGPR in the current R session
+
+#Functions
+
+plotBW <- function(data){
+  plot(data, col=gray.colors(50, start=0.05, end=0.95))
+}
+
+
+processingFun <- function(rawdata,filename,outDir){
+  ##Start processing
+  ##Time Zero removal
+  lastChar <- as.integer(nchar(filename, type="chars"))-4
+  fileOUT = substr(filename,0, lastChar) 
+  
+  rawGPRData = rawdata
+  
+  #Time 0 correction
+  
+  data_t0 <- time0Cor(rawGPRData, method="pchip")
+  print("Time 0 Correction Completed")
+  ##DC Shift Correction
+  
+  data_t0_DC <- dcshift(data_t0, u=1:200)
+  print("DC Shift Completed")
+  
+  ##Dewow
+  
+  data_t0_DC_dw <- dewow(data_t0_DC, type="runmed", w=30)
+  print("Dewow Completed")
+  
+  ##Background Subtraction Filter
+  
+  data_t0_DC_dw_bs <- rmBackground(data_t0_DC_dw)
+  print("Background Subtraction Completed")
+  
+  ##Gain
+  
+  #data_t0_DC_dw_bs_ga <- gain(data_t0_DC_dw_bs, type="power",alpha=2,tcst=2, te=7.5)
+  
+  data_t0_DC_dw_bs_ga <- gainAGC(data_t0_DC_dw_bs,w=5)
+  print("AGC Gain Completed")
+  
+  ##Migration
+  ##Set parameters for migration
+  
+  vel(data_t0_DC_dw_bs_ga) <- 0.1 #Velocity in m/ns
+  data_t0_DC_dw_bs_ga_kmig <- migrate(data_t0_DC_dw_bs_ga, type="kirchhoff", max_depth = 6,dz = 0.005, do= 250)
+  print("Kirchhoff Migration Completed")
+  
+  #data_t0_DC_dw_bs_ga_kmig_smig <- migrate(data_t0_DC_dw_bs_ga, type="static", max_depth = 6,dz = 0.005, do= 250)
+  #print("Static Migration Completed")
+  
+  #data_t0_DC_dw_bs_ga_mig_rega <- gainAGC(data_t0_DC_dw_bs_ga_mig,w=5)
+  #print("AGC Regain Completed")
+  
+  #Save last process into end file
+  procData = data_t0_DC_dw_bs_ga_kmig_smig
+  
+  #Plot data
+  #print("Plotting Data")
+  #plotBW(procData) #This slows the processing down quite a lot
+  
+  #Export Data
+  print("Exporting Data")
+  exportPNG(procData, target=paste0(outDirect,fileOUT,".png"))
+  return(procData)
+}
+
+
+## Set up filepaths, etc.
+direct = "...\\rawexport\\"
+outDirect = "...\\processeddata\\"
+setwd(direct)
+
+fileList <- list.files(path=direct, pattern="^.*(dt1)$", ignore.case=TRUE)
+
+
+for(filename in fileList){
+  
+  ## Read in GPR Data
+  
+  rawGPRData <- readGPR(dsn = filename, verbose = FALSE) #Read in GPR data 
+  lastChar <- as.integer(nchar(filename, type="chars"))-4
+  fileOUT = substr(filename,0, lastChar) 
+  print(fileOUT)
+  processingFun(rawGPRData,fileOUT,outDirect)
+}
+
