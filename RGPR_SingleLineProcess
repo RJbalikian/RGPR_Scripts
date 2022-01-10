@@ -1,0 +1,113 @@
+rm(list=ls())       # Removing all variables in RStudio from previous session
+library(RGPR)       # load RGPR in the current R session
+
+## Set up filepaths, etc.
+#Use the SandBoxData directory just to make sure we aren't messing with the Raw Data
+
+direct = "...\\Data\\SandBoxData\\"
+coordDirect = "...\\Topo\\Edited\\"
+outDirect = "...\\TempOutput\\Project1\\"
+setwd(direct) #Sets the "working directory"
+
+lineNo = "9"
+filename = paste0("Line",lineNo,".dt1")
+coordFile = paste0("Line0",lineNo,"_XYZ.csv")
+
+#Read Data
+print(paste("Starting", filename))
+GPRDataIN <- readGPR(dsn = filename, verbose = FALSE) #Read in GPR data 
+rawGPRData <- GPRDataIN #Copy data into new variable that may be edited later
+print("Data has been read")
+
+coordData <- as.matrix(read.csv(paste0(coordDirect,coordFile)))
+rawGPRData@coord = coordData
+
+#Housekeeping for file output name
+lastChar <- as.integer(nchar(filename, type="chars"))-4 #Get position of last character of filename
+fileOUT = substr(filename,0, lastChar) #Get output filename (for .png mostly)
+
+
+#Process Data
+#There is a good tutorial at this link for what is happening each step:
+#https://emanuelhuber.github.io/RGPR/02_RGPR_tutorial_basic-GPR-data-processing/
+
+
+##Start processing
+
+#Time 0 correction
+
+data_t0 <- time0Cor(rawGPRData, method="pchip")
+print("Time 0 Correction Completed")
+
+
+##DC Shift Correction
+
+data_t0_DC <- dcshift(data_t0, u=1:200)
+print("DC Shift Completed")
+
+
+##Dewow
+
+data_t0_DC_dw <- dewow(data_t0_DC, type="runmed", w=30)
+print("Dewow Completed")
+
+
+##Background Subtraction Filter
+
+data_t0_DC_dw_bs <- rmBackground(data_t0_DC_dw)
+print("Background Subtraction Completed")
+
+
+##Gain
+
+data_t0_DC_dw_bs_ga <- gainAGC(data_t0_DC_dw_bs,w=2.5,p=1.5)#The p value defaults to 2. For some, anything from 1-3 might work
+print("Gain Applied")
+
+
+##Migration, set velocity first from spreadsheet
+
+vel(data_t0_DC_dw_bs_ga) <- 0.106 #Velocity in m/ns --- value from spreadsheet!
+
+
+#Kirchhoff Migration
+
+data_t0_DC_dw_bs_ga_kmig <- migrate(data_t0_DC_dw_bs_ga, type="kirchhoff", max_depth=6, dz=0.005, fdo=250)
+print("Kirchhoff Migration Completed")
+
+
+#Static Migration
+
+#data_t0_DC_dw_bs_ga_kmig_smig <- migrate(data_t0_DC_dw_bs_ga, type="static", max_depth = 6,dz = 0.005, do= 250)
+#print("Static Migration Completed")
+
+
+#"Regain" if necessary (not always/usually necessary)
+
+#data_t0_DC_dw_bs_ga_mig_rega <- gainAGC(data_t0_DC_dw_bs_ga_kmig_smig,w=5)
+#print("AGC Regain Completed")
+
+
+
+procData = data_t0_DC_dw_bs_ga_kmig_smig #Save your best processing step into end fileYOu can adjust the variable on the right
+#Adjusting the variable on the right means you don't have to change the "procData" variable for the rest of the script
+
+#Upsample
+#If your line is short, this can lead to a better output visual. Don't need to do this for all profiles
+#The first value of the n= variable is factor of how much to upscale the Z direction (don't usually need to do this, unless migration was coarse); 
+#2nd value is the factor of how much to upscale x direction 2 is usually fine at most
+
+#procData2 <- upsample(procData, n=c(1, 1.5)) #This has not been working for me
+
+#Plot data
+
+colormap = 'grey3'
+print("Plotting Data")
+plot(procData, col=palGPR(colormap))
+
+#Export Data (not using this currently)
+#Export by hand by clicking export button above plot on bottom right panel=better
+
+#print("Exporting Data")
+exportPNG(procData, target=paste0(outDirect,fileOUT,'_noTopo_',colormap,".png"))
+print("Processing Complete")
+
